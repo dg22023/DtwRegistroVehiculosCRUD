@@ -23,9 +23,6 @@
 
 ### Html ###
 # html specific files
-
-*.html
-*.htm
 .DS_Store
 
 ### Css ###
