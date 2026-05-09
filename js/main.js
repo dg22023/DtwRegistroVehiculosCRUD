@@ -5,12 +5,16 @@ import { getVehicles } from './storage.js';
 import { processVehicle, deleteVehicle, getVehicleById } from './crud.js';
 
 let editingId = null;
+let metricsWorker = null;
+const WEATHER_API_KEY = 'YOUR_API_KEY_HERE'; // Reemplazar con una clave real de OpenWeather
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
         initNavigation();
         initForm();
         initSession();
+        initMetricsWorker();
+        initWeatherAndGeo();
         renderVehicleList();
         updateDashboard();
     } catch (error) {
@@ -18,6 +22,90 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Ocurrió un error al cargar la aplicación.');
     }
 });
+
+/**
+ * Inicializa el clima y la geolocalización
+ */
+function initWeatherAndGeo() {
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(async (position) => {
+            const { latitude, longitude } = position.coords;
+
+            // Actualizar pie de página con coordenadas
+            document.getElementById('geo-location').textContent = 
+                `Localización: Lat ${latitude.toFixed(2)}, Lon ${longitude.toFixed(2)}`;
+
+            // Obtener clima
+            fetchWeather(latitude, longitude);
+        }, (error) => {
+            console.warn('Geolocation error:', error);
+            document.getElementById('geo-location').textContent = 'Localización: Permiso denegado';
+            // Clima por defecto (ej: Madrid) si falla la geo
+            fetchWeather(40.4168, -3.7038);
+        });
+    } else {
+        document.getElementById('geo-location').textContent = 'Localización: No soportada';
+        fetchWeather(40.4168, -3.7038);
+    }
+}
+
+/**
+ * Obtiene el clima desde OpenWeather API
+ */
+async function fetchWeather(lat, lon) {
+    const weatherWidget = document.getElementById('weather-info');
+    try {
+        if (WEATHER_API_KEY === 'YOUR_API_KEY_HERE') {
+            weatherWidget.innerHTML = '<i class="fas fa-sun"></i> <span>22°C (Simulado)</span>';
+            return;
+        }
+
+        const response = await fetch(
+            `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${WEATHER_API_KEY}&lang=es`
+        );
+
+        if (!response.ok) throw new Error('Error en la API de clima');
+
+        const data = await response.json();
+        const temp = Math.round(data.main.temp);
+        const description = data.weather[0].description;
+        const icon = data.weather[0].icon;
+
+        weatherWidget.innerHTML = `
+            <img src="http://openweathermap.org/img/wn/${icon}.png" alt="${description}" style="width: 30px; height: 30px;">
+            <span>${temp}°C, ${data.name}</span>
+        `;
+    } catch (error) {
+        console.error('Weather error:', error);
+        weatherWidget.innerHTML = '<i class="fas fa-exclamation-triangle"></i> <span>Clima no disponible</span>';
+    }
+}
+
+/**
+ * Inicializa el Web Worker para las métricas
+ */
+function initMetricsWorker() {
+    if (window.Worker) {
+        metricsWorker = new Worker('js/metrics-worker.js');
+        
+        metricsWorker.onmessage = function(e) {
+            const metrics = e.data;
+            if (metrics.error) {
+                console.error('Worker error:', metrics.error);
+                return;
+            }
+            
+            // Actualizamos la UI con los resultados del worker
+            document.getElementById('total-vehicles').textContent = metrics.total;
+            document.getElementById('gas-vehicles').textContent = metrics.gasolina;
+            document.getElementById('electric-vehicles').textContent = metrics.electrico;
+            
+            console.log('Metrics updated via Web Worker:', metrics);
+        };
+    } else {
+        console.warn('Web Workers are not supported in this browser.');
+    }
+}
 
 /**
  * Inicializa la navegación entre secciones del dashboard
@@ -78,7 +166,8 @@ function initForm() {
             
             alert('Vehículo procesado correctamente.');
             
-            // Va al formulario de inventario para ver los cambios
+            // Actualizamos el dashboard y vamos al inventario
+            updateDashboard();
             document.querySelector('a[href="#inventory"]').click();
         } catch (error) {
             alert('Error: ' + error.message);
@@ -117,6 +206,9 @@ function renderVehicleList() {
         document.querySelectorAll('.btn-delete').forEach(btn => {
             btn.addEventListener('click', () => handleDelete(btn.dataset.id));
         });
+
+        // Actualizamos el dashboard cada vez que cambia la lista
+        updateDashboard();
     } catch (error) {
         console.error('Error rendering list:', error);
     }
@@ -166,9 +258,16 @@ function handleDelete(id) {
 export function updateDashboard() {
     try {
         const vehicles = getVehicles();
-        document.getElementById('total-vehicles').textContent = vehicles.length;
-        document.getElementById('gas-vehicles').textContent = vehicles.filter(v => v.fuel === 'Gasolina').length;
-        document.getElementById('electric-vehicles').textContent = vehicles.filter(v => v.fuel === 'Electrico').length;
+        
+        if (metricsWorker) {
+            // Usamos el Web Worker para el procesamiento pesado
+            metricsWorker.postMessage(vehicles);
+        } else {
+            // Fallback síncrono si el worker no está disponible
+            document.getElementById('total-vehicles').textContent = vehicles.length;
+            document.getElementById('gas-vehicles').textContent = vehicles.filter(v => v.fuel === 'Gasolina').length;
+            document.getElementById('electric-vehicles').textContent = vehicles.filter(v => v.fuel === 'Electrico').length;
+        }
     } catch (error) {
         console.error('Error updating dashboard:', error);
     }
