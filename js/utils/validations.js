@@ -28,3 +28,4 @@ export function validateVehicle(vehicle) {
 
     return true;
 }
+
