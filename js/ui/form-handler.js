@@ -58,6 +58,8 @@ export function initForm(
                     vehicle
                 );
 
+                const isEditing = editingId !== null;
+
                 processVehicle(
                     vehicle,
                     editingId
@@ -76,7 +78,9 @@ export function initForm(
                 refreshDashboard();
 
                 alert(
-                    'Vehículo guardado correctamente'
+                    isEditing 
+                        ? 'se ha actualizado correctamente' 
+                        : 'Vehículo guardado correctamente'
                 );
 
             } catch (error) {
