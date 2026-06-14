@@ -2,6 +2,7 @@
  * Modulo de almacenamiento para gestionar los datos de vehículos en localStorage
  */
 
+
 const STORAGE_KEY = 'dtw_vehicles';
 
 export function getVehicles() {
